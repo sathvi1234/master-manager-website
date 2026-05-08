@@ -1,56 +1,87 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Sparkles, Send, CheckCircle2, Loader2, ChevronDown, ChevronUp } from "lucide-react"
+import { Sparkles, Send, CheckCircle2, Loader2, ChevronDown, ChevronUp, AlertCircle, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-interface Task {
-  id: number
-  title: string
-  priority: "high" | "medium" | "low"
-  estimate: string
-}
-
-const sampleTasks: Task[] = [
-  { id: 1, title: "Set up user authentication with OAuth", priority: "high", estimate: "4h" },
-  { id: 2, title: "Design responsive dashboard layout", priority: "high", estimate: "6h" },
-  { id: 3, title: "Implement data visualization charts", priority: "medium", estimate: "5h" },
-  { id: 4, title: "Create API endpoints for analytics", priority: "medium", estimate: "3h" },
-  { id: 5, title: "Add dark mode theme support", priority: "low", estimate: "2h" },
-]
+import { generateAIContent, detectDomain } from "@/lib/ai-service"
+import { useAIContext, type Task } from "@/lib/ai-context"
 
 export function AITaskGenerator() {
+  const { setCurrentRequirement, setGeneratedTasks } = useAIContext()
   const [input, setInput] = useState("")
   const [isGenerating, setIsGenerating] = useState(false)
   const [tasks, setTasks] = useState<Task[]>([])
-  const [currentTaskIndex, setCurrentTaskIndex] = useState(0)
+  const [displayedTasks, setDisplayedTasks] = useState<Task[]>([])
   const [isExpanded, setIsExpanded] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [source, setSource] = useState<"api" | "fallback" | null>(null)
+  const [detectedDomain, setDetectedDomain] = useState<string | null>(null)
 
-  const generateTasks = () => {
-    if (!input.trim()) return
+  const generateTasks = async () => {
+    if (!input.trim()) {
+      setError("Please enter a requirement description")
+      return
+    }
+    
     setIsGenerating(true)
+    setError(null)
     setTasks([])
-    setCurrentTaskIndex(0)
-  }
-
-  useEffect(() => {
-    if (isGenerating && currentTaskIndex < sampleTasks.length) {
-      const timer = setTimeout(() => {
-        setTasks(prev => [...prev, sampleTasks[currentTaskIndex]])
-        setCurrentTaskIndex(prev => prev + 1)
-      }, 600)
-      return () => clearTimeout(timer)
-    } else if (currentTaskIndex >= sampleTasks.length) {
+    setDisplayedTasks([])
+    setSource(null)
+    
+    // Detect domain for UI feedback
+    const domain = detectDomain(input)
+    setDetectedDomain(domain !== "general" ? domain : null)
+    
+    // Store in context for other components
+    setCurrentRequirement(input)
+    
+    try {
+      const result = await generateAIContent<Task[]>("tasks", input)
+      
+      if (!result.data || result.data.length === 0) {
+        throw new Error("No tasks generated")
+      }
+      
+      setTasks(result.data)
+      setSource(result.source)
+      setGeneratedTasks(result.data)
+      
+      // Animate tasks appearing one by one
+      for (let i = 0; i < result.data.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, 150))
+        setDisplayedTasks(prev => [...prev, result.data[i]])
+      }
+      
+      if (result.error) {
+        console.warn("[v0] AI generation fallback used:", result.error)
+      }
+    } catch (err) {
+      console.error("[v0] Task generation failed:", err)
+      setError(err instanceof Error ? err.message : "Failed to generate tasks. Please try again.")
+    } finally {
       setIsGenerating(false)
     }
-  }, [isGenerating, currentTaskIndex])
+  }
 
   const getPriorityColor = (priority: string) => {
     switch (priority) {
       case "high": return "bg-red-500/20 text-red-400 border-red-500/30"
       case "medium": return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
       case "low": return "bg-green-500/20 text-green-400 border-green-500/30"
+      default: return "bg-muted text-muted-foreground"
+    }
+  }
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case "backend": return "bg-blue-500/20 text-blue-400"
+      case "frontend": return "bg-purple-500/20 text-purple-400"
+      case "database": return "bg-orange-500/20 text-orange-400"
+      case "auth": return "bg-red-500/20 text-red-400"
+      case "design": return "bg-pink-500/20 text-pink-400"
+      case "testing": return "bg-green-500/20 text-green-400"
       default: return "bg-muted text-muted-foreground"
     }
   }
@@ -94,8 +125,16 @@ export function AITaskGenerator() {
             <div className="relative mb-4">
               <textarea
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder="Describe your project requirements... e.g., 'I need a modern dashboard with login, analytics, and dark mode'"
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  setError(null)
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && e.metaKey) {
+                    generateTasks()
+                  }
+                }}
+                placeholder="Describe your project... e.g., 'Build a food delivery app with restaurant listings, order tracking, and payment integration'"
                 className="w-full h-24 bg-muted/30 border border-border rounded-xl p-4 pr-12 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-primary/50 focus:border-primary transition-all"
               />
               <Button
@@ -112,8 +151,20 @@ export function AITaskGenerator() {
               </Button>
             </div>
 
+            {/* Error State */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-center gap-2 p-3 rounded-lg bg-red-500/10 border border-red-500/20 mb-4"
+              >
+                <AlertCircle className="w-4 h-4 text-red-400" />
+                <span className="text-sm text-red-400">{error}</span>
+              </motion.div>
+            )}
+
             {/* Loading State */}
-            {isGenerating && tasks.length === 0 && (
+            {isGenerating && displayedTasks.length === 0 && (
               <div className="flex items-center gap-3 mb-4">
                 <div className="flex gap-1">
                   {[0, 1, 2].map((i) => (
@@ -125,25 +176,37 @@ export function AITaskGenerator() {
                     />
                   ))}
                 </div>
-                <span className="text-sm text-muted-foreground">Analyzing requirements...</span>
+                <span className="text-sm text-muted-foreground">
+                  {detectedDomain 
+                    ? `Analyzing ${detectedDomain} requirements...` 
+                    : "Analyzing requirements..."}
+                </span>
               </div>
             )}
 
             {/* Generated Tasks */}
             <AnimatePresence mode="popLayout">
-              {tasks.length > 0 && (
+              {displayedTasks.length > 0 && (
                 <motion.div
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   className="space-y-2"
                 >
-                  <div className="flex items-center gap-2 mb-3">
-                    <CheckCircle2 className="w-4 h-4 text-green-400" />
-                    <span className="text-sm text-muted-foreground">
-                      {tasks.length} tasks generated
-                    </span>
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle2 className="w-4 h-4 text-green-400" />
+                      <span className="text-sm text-muted-foreground">
+                        {displayedTasks.length} tasks generated
+                      </span>
+                    </div>
+                    {source === "fallback" && (
+                      <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20">
+                        <Zap className="w-3 h-3 text-yellow-400" />
+                        <span className="text-xs text-yellow-400">Demo Mode</span>
+                      </div>
+                    )}
                   </div>
-                  {tasks.map((task, index) => (
+                  {displayedTasks.map((task, index) => (
                     <motion.div
                       key={task.id}
                       initial={{ opacity: 0, x: -20, scale: 0.95 }}
@@ -151,17 +214,22 @@ export function AITaskGenerator() {
                       transition={{ delay: index * 0.05 }}
                       className="flex items-center justify-between p-3 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors group"
                     >
-                      <div className="flex items-center gap-3">
-                        <div className="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center text-xs text-primary font-medium">
+                      <div className="flex items-center gap-3 flex-1 min-w-0">
+                        <div className="w-6 h-6 rounded-md bg-primary/20 flex items-center justify-center text-xs text-primary font-medium shrink-0">
                           {index + 1}
                         </div>
-                        <span className="text-foreground">{task.title}</span>
+                        <span className="text-foreground truncate">{task.title}</span>
                       </div>
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center gap-2 shrink-0 ml-2">
+                        {task.category && (
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(task.category)}`}>
+                            {task.category}
+                          </span>
+                        )}
                         <span className={`text-xs px-2 py-1 rounded-full border ${getPriorityColor(task.priority)}`}>
                           {task.priority}
                         </span>
-                        <span className="text-xs text-muted-foreground">{task.estimate}</span>
+                        <span className="text-xs text-muted-foreground w-8 text-right">{task.estimate}</span>
                       </div>
                     </motion.div>
                   ))}

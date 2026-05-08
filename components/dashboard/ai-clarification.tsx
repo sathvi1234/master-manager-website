@@ -2,23 +2,20 @@
 
 import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { HelpCircle, Sparkles, MessageCircle, ChevronDown, ChevronUp, RefreshCw, Loader2, AlertCircle } from "lucide-react"
+import { HelpCircle, Sparkles, MessageCircle, ChevronDown, ChevronUp, RefreshCw, Loader2, AlertCircle, Zap, CheckCircle2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useAIContext, parseStreamingResponse, extractJSON } from "@/lib/ai-context"
-
-interface ClarificationResponse {
-  questions: string[]
-  context: string
-}
+import { generateAIContent, detectDomain } from "@/lib/ai-service"
+import { useAIContext, type ClarificationQuestion } from "@/lib/ai-context"
 
 export function AIClarification() {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
-  const [questions, setQuestions] = useState<string[]>([])
-  const [context, setContext] = useState("")
+  const [questions, setQuestions] = useState<ClarificationQuestion[]>([])
+  const [displayedQuestions, setDisplayedQuestions] = useState<ClarificationQuestion[]>([])
   const [input, setInput] = useState("")
   const [error, setError] = useState<string | null>(null)
-  const [animatingIndex, setAnimatingIndex] = useState(-1)
+  const [source, setSource] = useState<"api" | "fallback" | null>(null)
+  const [detectedDomain, setDetectedDomain] = useState<string | null>(null)
   
   const { currentRequirement } = useAIContext()
 
@@ -31,45 +28,67 @@ export function AIClarification() {
     
     setIsGenerating(true)
     setQuestions([])
-    setContext("")
+    setDisplayedQuestions([])
     setError(null)
-    setAnimatingIndex(-1)
+    setSource(null)
+
+    // Detect domain for UI feedback
+    const domain = detectDomain(requirement)
+    setDetectedDomain(domain !== "general" ? domain : null)
 
     try {
-      const response = await fetch("/api/ai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "clarification",
-          input: requirement,
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to generate questions")
-      }
-
-      const fullText = await parseStreamingResponse(response)
-      const parsedResponse = extractJSON(fullText) as ClarificationResponse
+      const result = await generateAIContent<ClarificationQuestion[]>("clarification", requirement)
       
-      if (parsedResponse && Array.isArray(parsedResponse.questions)) {
-        // Animate questions appearing one by one
-        for (let i = 0; i < parsedResponse.questions.length; i++) {
-          setAnimatingIndex(i)
-          setQuestions(prev => [...prev, parsedResponse.questions[i]])
-          await new Promise(resolve => setTimeout(resolve, 300))
-        }
-        setContext(parsedResponse.context || "")
-        setAnimatingIndex(-1)
-      } else {
-        throw new Error("Invalid response format")
+      if (!result.data || result.data.length === 0) {
+        throw new Error("No questions generated")
+      }
+      
+      setQuestions(result.data)
+      setSource(result.source)
+      
+      // Animate questions appearing one by one
+      for (let i = 0; i < result.data.length; i++) {
+        await new Promise(resolve => setTimeout(resolve, 200))
+        setDisplayedQuestions(prev => [...prev, result.data[i]])
+      }
+      
+      if (result.error) {
+        console.warn("[v0] Clarification generation fallback used:", result.error)
       }
     } catch (err) {
-      console.error("Clarification generation error:", err)
-      setError("Failed to generate questions. Please try again.")
+      console.error("[v0] Clarification generation error:", err)
+      setError(err instanceof Error ? err.message : "Failed to generate questions. Please try again.")
     } finally {
       setIsGenerating(false)
     }
+  }
+
+  const getCategoryColor = (category: string) => {
+    switch (category) {
+      case "technical": return "bg-blue-500/20 text-blue-400"
+      case "ux": return "bg-purple-500/20 text-purple-400"
+      case "business": return "bg-green-500/20 text-green-400"
+      case "timeline": return "bg-yellow-500/20 text-yellow-400"
+      case "compliance": return "bg-red-500/20 text-red-400"
+      default: return "bg-muted text-muted-foreground"
+    }
+  }
+
+  const getImportanceColor = (importance: string) => {
+    switch (importance) {
+      case "critical": return "border-red-500/30 bg-red-500/10"
+      case "important": return "border-yellow-500/30 bg-yellow-500/10"
+      default: return "border-border bg-muted/30"
+    }
+  }
+
+  const reset = () => {
+    setQuestions([])
+    setDisplayedQuestions([])
+    setInput("")
+    setError(null)
+    setSource(null)
+    setDetectedDomain(null)
   }
 
   return (
@@ -109,12 +128,18 @@ export function AIClarification() {
             className="px-6 pb-6"
           >
             {/* Input Section */}
-            {questions.length === 0 && !isGenerating && (
+            {displayedQuestions.length === 0 && !isGenerating && (
               <div className="space-y-4">
                 <textarea
                   value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={currentRequirement || "Enter your project requirement to generate clarification questions..."}
+                  onChange={(e) => {
+                    setInput(e.target.value)
+                    setError(null)
+                  }}
+                  placeholder={currentRequirement 
+                    ? `Using: "${currentRequirement.slice(0, 50)}..." or enter new requirement`
+                    : "Enter your project requirement to generate clarification questions..."
+                  }
                   className="w-full h-20 bg-muted/30 border border-border rounded-xl p-4 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all text-sm"
                 />
                 <Button
@@ -140,7 +165,7 @@ export function AIClarification() {
             )}
 
             {/* Generating State */}
-            {isGenerating && questions.length === 0 && (
+            {isGenerating && displayedQuestions.length === 0 && (
               <div className="flex items-center justify-center py-8">
                 <div className="flex flex-col items-center gap-3">
                   <div className="relative">
@@ -154,7 +179,11 @@ export function AIClarification() {
                     />
                   </div>
                   <div className="text-center">
-                    <span className="text-sm text-foreground">Analyzing requirements...</span>
+                    <span className="text-sm text-foreground">
+                      {detectedDomain 
+                        ? `Analyzing ${detectedDomain} requirements...` 
+                        : "Analyzing requirements..."}
+                    </span>
                     <p className="text-xs text-muted-foreground">Identifying gaps and ambiguities</p>
                   </div>
                   <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
@@ -163,40 +192,49 @@ export function AIClarification() {
             )}
 
             {/* Questions List */}
-            {questions.length > 0 && (
+            {displayedQuestions.length > 0 && (
               <div className="space-y-4">
-                {/* Context Summary */}
-                {context && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/30"
-                  >
-                    <p className="text-xs text-cyan-400">{context}</p>
-                  </motion.div>
-                )}
+                {/* Success Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    <span className="text-sm text-muted-foreground">
+                      {displayedQuestions.length} questions generated
+                    </span>
+                  </div>
+                  {source === "fallback" && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20">
+                      <Zap className="w-3 h-3 text-yellow-400" />
+                      <span className="text-xs text-yellow-400">Demo Mode</span>
+                    </div>
+                  )}
+                </div>
                 
                 <div className="space-y-3">
-                  {questions.map((question, index) => (
+                  {displayedQuestions.map((q, index) => (
                     <motion.div
-                      key={index}
+                      key={q.id}
                       initial={{ opacity: 0, x: -20 }}
                       animate={{ opacity: 1, x: 0 }}
                       transition={{ delay: index * 0.05 }}
-                      className={`group p-4 rounded-xl bg-muted/30 border border-border/50 hover:border-cyan-500/30 transition-all ${
-                        animatingIndex === index ? "ring-2 ring-cyan-500/50" : ""
-                      }`}
+                      className={`group p-4 rounded-xl border transition-all ${getImportanceColor(q.importance)}`}
                     >
                       <div className="flex items-start gap-3">
                         <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center shrink-0">
                           <MessageCircle className="w-4 h-4 text-cyan-400" />
                         </div>
                         <div className="flex-1">
-                          <p className="text-foreground text-sm leading-relaxed">{question}</p>
+                          <p className="text-foreground text-sm leading-relaxed">{q.question}</p>
+                          {q.context && (
+                            <p className="text-xs text-muted-foreground mt-2 italic">{q.context}</p>
+                          )}
                           <div className="flex items-center gap-2 mt-2">
-                            <span className="text-xs text-muted-foreground">Q{index + 1}</span>
-                            <span className="text-xs text-cyan-400/60">•</span>
-                            <span className="text-xs text-cyan-400/60">AI Generated</span>
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${getCategoryColor(q.category)}`}>
+                              {q.category}
+                            </span>
+                            <span className="text-xs text-muted-foreground">
+                              {q.importance}
+                            </span>
                           </div>
                         </div>
                       </div>
@@ -215,7 +253,7 @@ export function AIClarification() {
                 {/* Reset Button */}
                 {!isGenerating && (
                   <Button
-                    onClick={() => { setQuestions([]); setContext(""); setInput(""); }}
+                    onClick={reset}
                     variant="outline"
                     className="w-full border-cyan-500/30 hover:bg-cyan-500/10"
                   >

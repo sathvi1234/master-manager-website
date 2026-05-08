@@ -2,18 +2,21 @@
 
 import { useState, useEffect, useRef } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { Mic, MicOff, ChevronDown, ChevronUp, Loader2, CheckCircle2, Volume2, AlertCircle, RefreshCw } from "lucide-react"
+import { Mic, MicOff, ChevronDown, ChevronUp, Loader2, CheckCircle2, Volume2, AlertCircle, RefreshCw, Zap } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { parseStreamingResponse, extractJSON, GeneratedTask } from "@/lib/ai-context"
+import { generateAIContent, detectDomain } from "@/lib/ai-service"
+import type { Task } from "@/lib/ai-context"
 
 export function VoiceToTask() {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState("")
   const [isProcessing, setIsProcessing] = useState(false)
-  const [tasks, setTasks] = useState<GeneratedTask[]>([])
+  const [tasks, setTasks] = useState<Task[]>([])
   const [error, setError] = useState("")
   const [textInput, setTextInput] = useState("")
+  const [source, setSource] = useState<"api" | "fallback" | null>(null)
+  const [detectedDomain, setDetectedDomain] = useState<string | null>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
 
   useEffect(() => {
@@ -32,7 +35,8 @@ export function VoiceToTask() {
       }
 
       recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
-        setError("Error: " + event.error)
+        console.error("[v0] Speech recognition error:", event.error)
+        setError("Microphone error: " + event.error)
         setIsListening(false)
       }
 
@@ -50,7 +54,7 @@ export function VoiceToTask() {
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
-      setError("Speech recognition not supported in this browser")
+      setError("Speech recognition not supported in this browser. Use text input instead.")
       return
     }
 
@@ -64,41 +68,48 @@ export function VoiceToTask() {
       setTranscript("")
       setError("")
       setTasks([])
-      recognitionRef.current.start()
-      setIsListening(true)
+      setSource(null)
+      try {
+        recognitionRef.current.start()
+        setIsListening(true)
+      } catch (err) {
+        console.error("[v0] Failed to start speech recognition:", err)
+        setError("Could not start microphone. Please check permissions.")
+      }
     }
   }
 
   const processTranscript = async (text: string) => {
+    if (!text.trim()) {
+      setError("Please provide some input to process")
+      return
+    }
+
     setIsProcessing(true)
     setError("")
+    setTasks([])
+    setSource(null)
+
+    // Detect domain for UI feedback
+    const domain = detectDomain(text)
+    setDetectedDomain(domain !== "general" ? domain : null)
 
     try {
-      const response = await fetch("/api/ai/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          type: "tasks",
-          input: text,
-          context: { source: "voice" },
-        }),
-      })
-
-      if (!response.ok) {
-        throw new Error("Failed to generate tasks")
-      }
-
-      const fullText = await parseStreamingResponse(response)
-      const parsedTasks = extractJSON(fullText) as GeneratedTask[]
+      const result = await generateAIContent<Task[]>("tasks", text, { source: "voice" })
       
-      if (Array.isArray(parsedTasks)) {
-        setTasks(parsedTasks)
-      } else {
-        throw new Error("Invalid response format")
+      if (!result.data || result.data.length === 0) {
+        throw new Error("No tasks generated from input")
+      }
+      
+      setTasks(result.data)
+      setSource(result.source)
+      
+      if (result.error) {
+        console.warn("[v0] Voice processing fallback used:", result.error)
       }
     } catch (err) {
-      console.error("Voice processing error:", err)
-      setError("Failed to process. Please try again.")
+      console.error("[v0] Voice processing error:", err)
+      setError(err instanceof Error ? err.message : "Failed to process. Please try again.")
     } finally {
       setIsProcessing(false)
     }
@@ -120,11 +131,24 @@ export function VoiceToTask() {
     }
   }
 
+  const getCategoryColor = (category?: string) => {
+    switch (category) {
+      case "backend": return "bg-blue-500/20 text-blue-400"
+      case "frontend": return "bg-purple-500/20 text-purple-400"
+      case "database": return "bg-orange-500/20 text-orange-400"
+      case "auth": return "bg-red-500/20 text-red-400"
+      case "design": return "bg-pink-500/20 text-pink-400"
+      default: return "bg-muted text-muted-foreground"
+    }
+  }
+
   const reset = () => {
     setTranscript("")
     setTasks([])
     setError("")
     setTextInput("")
+    setSource(null)
+    setDetectedDomain(null)
   }
 
   return (
@@ -249,7 +273,7 @@ export function VoiceToTask() {
                     value={textInput}
                     onChange={(e) => setTextInput(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleTextSubmit()}
-                    placeholder="Type your requirements..."
+                    placeholder="Type your requirements... e.g. 'Build a food delivery app'"
                     className="flex-1 bg-muted/30 border border-border rounded-xl px-4 py-3 text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-pink-500/50 focus:border-pink-500 transition-all text-sm"
                   />
                   <Button
@@ -278,8 +302,12 @@ export function VoiceToTask() {
                     />
                   </div>
                   <div className="text-center">
-                    <p className="text-foreground font-medium">Processing voice input...</p>
-                    <p className="text-sm text-muted-foreground">Extracting tasks from your requirements</p>
+                    <p className="text-foreground font-medium">Processing input...</p>
+                    <p className="text-sm text-muted-foreground">
+                      {detectedDomain 
+                        ? `Detecting ${detectedDomain} domain tasks` 
+                        : "Extracting tasks from your requirements"}
+                    </p>
                   </div>
                   <Loader2 className="w-5 h-5 text-pink-400 animate-spin" />
                   
@@ -300,10 +328,18 @@ export function VoiceToTask() {
                 <motion.div
                   initial={{ opacity: 0, scale: 0.95 }}
                   animate={{ opacity: 1, scale: 1 }}
-                  className="flex items-center gap-2 p-3 rounded-lg bg-green-500/10 border border-green-500/30"
+                  className="flex items-center justify-between p-3 rounded-lg bg-green-500/10 border border-green-500/30"
                 >
-                  <CheckCircle2 className="w-4 h-4 text-green-400" />
-                  <span className="text-sm text-green-400">{tasks.length} tasks generated from voice input</span>
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    <span className="text-sm text-green-400">{tasks.length} tasks generated</span>
+                  </div>
+                  {source === "fallback" && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20">
+                      <Zap className="w-3 h-3 text-yellow-400" />
+                      <span className="text-xs text-yellow-400">Demo Mode</span>
+                    </div>
+                  )}
                 </motion.div>
 
                 {/* Original transcript */}
@@ -325,20 +361,25 @@ export function VoiceToTask() {
                       className="p-4 rounded-xl bg-muted/30 border border-border/50 hover:border-pink-500/30 transition-all"
                     >
                       <div className="flex items-start justify-between gap-3">
-                        <div className="flex-1">
-                          <p className="text-foreground font-medium">{task.title}</p>
-                          {task.description && (
-                            <p className="text-sm text-muted-foreground mt-1">{task.description}</p>
-                          )}
-                          {task.category && (
-                            <span className="text-xs text-muted-foreground mt-2 inline-block">
-                              {task.category}
-                            </span>
-                          )}
+                        <div className="flex items-start gap-3 flex-1 min-w-0">
+                          <div className="w-6 h-6 rounded-md bg-pink-500/20 flex items-center justify-center text-xs text-pink-400 font-medium shrink-0 mt-0.5">
+                            {index + 1}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-foreground font-medium truncate">{task.title}</p>
+                            {task.category && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full mt-1 inline-block ${getCategoryColor(task.category)}`}>
+                                {task.category}
+                              </span>
+                            )}
+                          </div>
                         </div>
-                        <span className={`text-xs px-3 py-1 rounded-full border ${getPriorityColor(task.priority)}`}>
-                          {task.priority}
-                        </span>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <span className={`text-xs px-2 py-1 rounded-full border ${getPriorityColor(task.priority)}`}>
+                            {task.priority}
+                          </span>
+                          <span className="text-xs text-muted-foreground">{task.estimate}</span>
+                        </div>
                       </div>
                     </motion.div>
                   ))}
@@ -351,7 +392,7 @@ export function VoiceToTask() {
                   className="w-full border-pink-500/30 hover:bg-pink-500/10"
                 >
                   <RefreshCw className="w-4 h-4 mr-2" />
-                  Record New Voice Input
+                  Record New Input
                 </Button>
               </div>
             )}

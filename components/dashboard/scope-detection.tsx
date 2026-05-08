@@ -1,53 +1,69 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Plus, Minus, TrendingUp } from "lucide-react"
+import { AlertTriangle, ChevronDown, ChevronUp, RefreshCw, Plus, Minus, TrendingUp, Loader2, AlertCircle, Zap, CheckCircle2, Send } from "lucide-react"
 import { Button } from "@/components/ui/button"
-
-interface ScopeItem {
-  id: number
-  text: string
-  type: "added" | "removed" | "modified"
-}
-
-const sampleChanges: ScopeItem[] = [
-  { id: 1, text: "Add real-time notifications system", type: "added" },
-  { id: 2, text: "Include admin panel with user management", type: "added" },
-  { id: 3, text: "Remove email verification step", type: "removed" },
-  { id: 4, text: "Extend analytics to include custom reports", type: "modified" },
-  { id: 5, text: "Add multi-language support", type: "added" },
-]
+import { generateAIContent, detectDomain } from "@/lib/ai-service"
+import { useAIContext, type ScopeAnalysis } from "@/lib/ai-context"
 
 export function ScopeDetection() {
+  const { currentRequirement } = useAIContext()
   const [isExpanded, setIsExpanded] = useState(true)
   const [isAnalyzing, setIsAnalyzing] = useState(false)
-  const [changes, setChanges] = useState<ScopeItem[]>([])
-  const [scopeIncrease, setScopeIncrease] = useState(0)
-  const [showWarning, setShowWarning] = useState(false)
+  const [originalScope, setOriginalScope] = useState("")
+  const [newScope, setNewScope] = useState("")
+  const [analysis, setAnalysis] = useState<ScopeAnalysis | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [source, setSource] = useState<"api" | "fallback" | null>(null)
+  const [detectedDomain, setDetectedDomain] = useState<string | null>(null)
 
-  const analyzeScope = () => {
+  const analyzeScope = async () => {
+    const original = originalScope.trim() || currentRequirement
+    const updated = newScope.trim()
+    
+    if (!original) {
+      setError("Please enter the original scope or generate tasks first")
+      return
+    }
+    
+    if (!updated) {
+      setError("Please enter the updated/new scope to compare")
+      return
+    }
+    
     setIsAnalyzing(true)
-    setChanges([])
-    setScopeIncrease(0)
-    setShowWarning(false)
+    setAnalysis(null)
+    setError(null)
+    setSource(null)
 
-    setTimeout(() => {
-      let currentIndex = 0
-      const interval = setInterval(() => {
-        if (currentIndex < sampleChanges.length) {
-          setChanges(prev => [...prev, sampleChanges[currentIndex]])
-          if (sampleChanges[currentIndex].type === "added") {
-            setScopeIncrease(prev => prev + 15)
-          }
-          currentIndex++
-        } else {
-          clearInterval(interval)
-          setIsAnalyzing(false)
-          setShowWarning(true)
-        }
-      }, 400)
-    }, 800)
+    // Detect domain for UI feedback
+    const domain = detectDomain(updated)
+    setDetectedDomain(domain !== "general" ? domain : null)
+
+    try {
+      const result = await generateAIContent<ScopeAnalysis>(
+        "scope", 
+        updated, 
+        { original }
+      )
+      
+      if (!result.data || !result.data.scopeChange) {
+        throw new Error("Failed to analyze scope changes")
+      }
+      
+      setAnalysis(result.data)
+      setSource(result.source)
+      
+      if (result.error) {
+        console.warn("[v0] Scope analysis fallback used:", result.error)
+      }
+    } catch (err) {
+      console.error("[v0] Scope analysis error:", err)
+      setError(err instanceof Error ? err.message : "Failed to analyze scope. Please try again.")
+    } finally {
+      setIsAnalyzing(false)
+    }
   }
 
   const getTypeIcon = (type: string) => {
@@ -64,6 +80,24 @@ export function ScopeDetection() {
       case "removed": return "bg-green-500/20 text-green-400 border-green-500/30"
       default: return "bg-yellow-500/20 text-yellow-400 border-yellow-500/30"
     }
+  }
+
+  const getSeverityColor = (severity: string) => {
+    switch (severity) {
+      case "major": return "text-red-400"
+      case "moderate": return "text-orange-400"
+      case "minor": return "text-yellow-400"
+      default: return "text-green-400"
+    }
+  }
+
+  const reset = () => {
+    setAnalysis(null)
+    setOriginalScope("")
+    setNewScope("")
+    setError(null)
+    setSource(null)
+    setDetectedDomain(null)
   }
 
   return (
@@ -87,7 +121,7 @@ export function ScopeDetection() {
           </div>
         </div>
         <div className="flex items-center gap-3">
-          {showWarning && (
+          {analysis?.scopeChange?.detected && (
             <motion.div
               initial={{ scale: 0, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
@@ -118,19 +152,60 @@ export function ScopeDetection() {
             transition={{ duration: 0.3 }}
             className="px-6 pb-6"
           >
-            {/* Analyze Button */}
-            {changes.length === 0 && !isAnalyzing && (
-              <Button
-                onClick={analyzeScope}
-                className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:opacity-90 text-white rounded-xl py-6"
+            {/* Input Section */}
+            {!analysis && !isAnalyzing && (
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm text-muted-foreground mb-2 block">Original Scope</label>
+                  <textarea
+                    value={originalScope}
+                    onChange={(e) => {
+                      setOriginalScope(e.target.value)
+                      setError(null)
+                    }}
+                    placeholder={currentRequirement 
+                      ? `Using: "${currentRequirement.slice(0, 40)}..." or enter original scope`
+                      : "Enter the original project scope..."
+                    }
+                    className="w-full h-20 bg-muted/30 border border-border rounded-xl p-4 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 transition-all text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="text-sm text-muted-foreground mb-2 block">Updated/New Scope</label>
+                  <textarea
+                    value={newScope}
+                    onChange={(e) => {
+                      setNewScope(e.target.value)
+                      setError(null)
+                    }}
+                    placeholder="Enter the updated or new requirements to compare..."
+                    className="w-full h-20 bg-muted/30 border border-border rounded-xl p-4 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-orange-500/50 focus:border-orange-500 transition-all text-sm"
+                  />
+                </div>
+                <Button
+                  onClick={analyzeScope}
+                  className="w-full bg-gradient-to-r from-orange-500 to-red-500 hover:opacity-90 text-white rounded-xl py-6"
+                >
+                  <Send className="w-4 h-4 mr-2" />
+                  Analyze Scope Changes
+                </Button>
+              </div>
+            )}
+
+            {/* Error State */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mb-4 p-3 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center gap-2"
               >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Analyze Scope Changes
-              </Button>
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <p className="text-sm text-red-400">{error}</p>
+              </motion.div>
             )}
 
             {/* Analyzing State */}
-            {isAnalyzing && changes.length === 0 && (
+            {isAnalyzing && (
               <div className="flex items-center justify-center py-8">
                 <div className="flex flex-col items-center gap-3">
                   <motion.div
@@ -140,73 +215,147 @@ export function ScopeDetection() {
                   >
                     <RefreshCw className="w-6 h-6 text-orange-400" />
                   </motion.div>
-                  <span className="text-sm text-muted-foreground">Comparing requirements...</span>
+                  <span className="text-sm text-foreground">
+                    {detectedDomain 
+                      ? `Analyzing ${detectedDomain} scope changes...` 
+                      : "Comparing requirements..."}
+                  </span>
+                  <Loader2 className="w-5 h-5 text-orange-400 animate-spin" />
                 </div>
               </div>
             )}
 
-            {/* Scope Increase Meter */}
-            {scopeIncrease > 0 && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-4 p-4 rounded-xl bg-muted/30"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm text-muted-foreground">Scope Increase</span>
-                  <div className="flex items-center gap-1">
-                    <TrendingUp className="w-4 h-4 text-red-400" />
-                    <motion.span
-                      key={scopeIncrease}
-                      initial={{ scale: 1.5, color: "#f87171" }}
-                      animate={{ scale: 1, color: "#f87171" }}
-                      className="text-lg font-bold"
-                    >
-                      +{scopeIncrease}%
-                    </motion.span>
+            {/* Analysis Results */}
+            {analysis && (
+              <div className="space-y-4">
+                {/* Success Header */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="w-4 h-4 text-green-400" />
+                    <span className="text-sm text-muted-foreground">Analysis complete</span>
                   </div>
+                  {source === "fallback" && (
+                    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-yellow-500/10 border border-yellow-500/20">
+                      <Zap className="w-3 h-3 text-yellow-400" />
+                      <span className="text-xs text-yellow-400">Demo Mode</span>
+                    </div>
+                  )}
                 </div>
-                <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${Math.min(scopeIncrease, 100)}%` }}
-                    transition={{ duration: 0.5 }}
-                    className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full"
-                  />
-                </div>
-              </motion.div>
-            )}
 
-            {/* Changes List */}
-            <div className="space-y-2">
-              {changes.map((change, index) => (
+                {/* Scope Increase Meter */}
                 <motion.div
-                  key={change.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className="flex items-center gap-3 p-3 rounded-xl bg-muted/30"
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="p-4 rounded-xl bg-muted/30"
                 >
-                  <div className={`w-6 h-6 rounded-md flex items-center justify-center border ${getTypeColor(change.type)}`}>
-                    {getTypeIcon(change.type)}
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm text-muted-foreground">Scope Change</span>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs px-2 py-0.5 rounded-full ${
+                        analysis.scopeChange.severity === "major" ? "bg-red-500/20 text-red-400" :
+                        analysis.scopeChange.severity === "moderate" ? "bg-orange-500/20 text-orange-400" :
+                        analysis.scopeChange.severity === "minor" ? "bg-yellow-500/20 text-yellow-400" :
+                        "bg-green-500/20 text-green-400"
+                      }`}>
+                        {analysis.scopeChange.severity}
+                      </span>
+                      <div className="flex items-center gap-1">
+                        <TrendingUp className={`w-4 h-4 ${getSeverityColor(analysis.scopeChange.severity)}`} />
+                        <motion.span
+                          initial={{ scale: 1.5 }}
+                          animate={{ scale: 1 }}
+                          className={`text-lg font-bold ${getSeverityColor(analysis.scopeChange.severity)}`}
+                        >
+                          +{analysis.scopeChange.percentageIncrease}%
+                        </motion.span>
+                      </div>
+                    </div>
                   </div>
-                  <span className="text-sm text-foreground flex-1">{change.text}</span>
-                  <span className={`text-xs px-2 py-0.5 rounded-full border ${getTypeColor(change.type)}`}>
-                    {change.type}
-                  </span>
+                  <div className="w-full h-2 bg-muted rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${Math.min(analysis.scopeChange.percentageIncrease, 100)}%` }}
+                      transition={{ duration: 0.5 }}
+                      className="h-full bg-gradient-to-r from-orange-500 to-red-500 rounded-full"
+                    />
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-2">{analysis.scopeChange.summary}</p>
                 </motion.div>
-              ))}
-            </div>
 
-            {/* Reset Button */}
-            {changes.length > 0 && !isAnalyzing && (
-              <Button
-                onClick={analyzeScope}
-                variant="outline"
-                className="w-full mt-4 border-orange-500/30 hover:bg-orange-500/10"
-              >
-                Re-analyze Changes
-              </Button>
+                {/* Added Features */}
+                {analysis.addedFeatures && analysis.addedFeatures.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-sm font-medium text-foreground">Added Requirements</h4>
+                    {analysis.addedFeatures.map((feature, index) => (
+                      <motion.div
+                        key={index}
+                        initial={{ opacity: 0, x: -20 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="flex items-center gap-3 p-3 rounded-xl bg-muted/30"
+                      >
+                        <div className={`w-6 h-6 rounded-md flex items-center justify-center border ${getTypeColor("added")}`}>
+                          {getTypeIcon("added")}
+                        </div>
+                        <div className="flex-1">
+                          <span className="text-sm text-foreground">{feature.feature}</span>
+                          <span className="text-xs text-muted-foreground ml-2">({feature.effort})</span>
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full ${
+                          feature.impact === "high" ? "bg-red-500/20 text-red-400" :
+                          feature.impact === "medium" ? "bg-yellow-500/20 text-yellow-400" :
+                          "bg-green-500/20 text-green-400"
+                        }`}>
+                          {feature.impact} impact
+                        </span>
+                      </motion.div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Recommendations */}
+                {analysis.recommendations && analysis.recommendations.length > 0 && (
+                  <div className="p-4 rounded-xl bg-blue-500/10 border border-blue-500/30">
+                    <h4 className="text-sm font-medium text-blue-400 mb-2">Recommendations</h4>
+                    <ul className="space-y-1">
+                      {analysis.recommendations.map((rec, index) => (
+                        <li key={index} className="text-sm text-muted-foreground flex items-start gap-2">
+                          <span className="text-blue-400">•</span>
+                          {rec}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {/* Risk Assessment */}
+                {analysis.riskAssessment && (
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="p-3 rounded-lg bg-muted/30 text-center">
+                      <p className="text-xs text-muted-foreground">Timeline Risk</p>
+                      <p className="text-sm text-foreground mt-1">{analysis.riskAssessment.timeline}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/30 text-center">
+                      <p className="text-xs text-muted-foreground">Budget Risk</p>
+                      <p className="text-sm text-foreground mt-1">{analysis.riskAssessment.budget}</p>
+                    </div>
+                    <div className="p-3 rounded-lg bg-muted/30 text-center">
+                      <p className="text-xs text-muted-foreground">Technical Risk</p>
+                      <p className="text-sm text-foreground mt-1">{analysis.riskAssessment.technical}</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Reset Button */}
+                <Button
+                  onClick={reset}
+                  variant="outline"
+                  className="w-full border-orange-500/30 hover:bg-orange-500/10"
+                >
+                  <RefreshCw className="w-4 h-4 mr-2" />
+                  Analyze New Changes
+                </Button>
+              </div>
             )}
           </motion.div>
         )}
