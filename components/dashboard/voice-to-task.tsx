@@ -67,11 +67,10 @@ export function VoiceToTask() {
           setError("Microphone error: " + event.error)
           setIsListening(false)
         }
-      }
-    }
 
-      recognitionRef.current.onend = () => {
-        setIsListening(false)
+        recognitionRef.current.onend = () => {
+          setIsListening(false)
+        }
       }
     }
 
