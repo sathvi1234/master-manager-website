@@ -21,6 +21,9 @@ import { ScopeDetection } from "@/components/dashboard/scope-detection"
 import { WorkflowVisualization } from "@/components/dashboard/workflow-visualization"
 import { AIClarification } from "@/components/dashboard/ai-clarification"
 import { VoiceToTask } from "@/components/dashboard/voice-to-task"
+import { LiveActivityFeed } from "@/components/dashboard/live-activity-feed"
+import { AnimatedStatCard } from "@/components/dashboard/animated-stat-card"
+import { ParticleField } from "@/components/effects/particle-field"
 
 const stats = [
   { label: "Active Projects", value: "12", icon: LayoutDashboard, trend: "+2 this week" },
@@ -38,9 +41,46 @@ const recentTasks = [
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background relative overflow-hidden">
+      {/* Animated background */}
+      <div className="fixed inset-0 pointer-events-none">
+        <ParticleField count={30} />
+        <motion.div
+          className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(124, 58, 237, 0.08) 0%, transparent 70%)",
+            filter: "blur(80px)",
+          }}
+          animate={{
+            scale: [1, 1.1, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{
+            duration: 10,
+            repeat: Infinity,
+            ease: "easeInOut",
+          }}
+        />
+        <motion.div
+          className="absolute bottom-0 left-0 w-[500px] h-[500px] rounded-full"
+          style={{
+            background: "radial-gradient(circle, rgba(37, 99, 235, 0.08) 0%, transparent 70%)",
+            filter: "blur(80px)",
+          }}
+          animate={{
+            scale: [1, 1.15, 1],
+            opacity: [0.3, 0.5, 0.3],
+          }}
+          transition={{
+            duration: 8,
+            repeat: Infinity,
+            ease: "easeInOut",
+            delay: 2,
+          }}
+        />
+      </div>
       {/* Dashboard Header */}
-      <header className="glass sticky top-0 z-50 border-b border-border">
+      <header className="glass sticky top-0 z-50 border-b border-border relative">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -69,7 +109,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 relative z-10">
         {/* Welcome Section */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -82,25 +122,17 @@ export default function DashboardPage() {
           </p>
         </motion.div>
 
-        {/* Stats Grid */}
+        {/* Stats Grid with Animated Cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
           {stats.map((stat, index) => (
-            <motion.div
+            <AnimatedStatCard
               key={stat.label}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.1 }}
-              className="glass rounded-2xl p-6 glass-hover transition-all"
-            >
-              <div className="flex items-start justify-between mb-4">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary/20 to-secondary/20 flex items-center justify-center">
-                  <stat.icon className="w-6 h-6 text-primary" />
-                </div>
-                <span className="text-xs text-muted-foreground">{stat.trend}</span>
-              </div>
-              <p className="text-3xl font-bold text-foreground mb-1">{stat.value}</p>
-              <p className="text-sm text-muted-foreground">{stat.label}</p>
-            </motion.div>
+              label={stat.label}
+              value={stat.value}
+              icon={stat.icon}
+              trend={stat.trend}
+              index={index}
+            />
           ))}
         </div>
 
@@ -183,29 +215,14 @@ export default function DashboardPage() {
           </motion.div>
         </div>
 
-        {/* AI Activity Feed */}
+        {/* Live AI Activity Feed */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.6 }}
-          className="mt-6 glass rounded-2xl p-6"
+          className="mt-6"
         >
-          <h2 className="text-lg font-semibold text-foreground mb-6">AI Activity Feed</h2>
-          <div className="space-y-4">
-            {[
-              { time: "2 min ago", action: "Generated 5 tasks from client email", type: "task" },
-              { time: "15 min ago", action: "Detected potential scope creep in Project Alpha", type: "alert" },
-              { time: "1 hour ago", action: "Auto-created PRD for Dashboard Redesign", type: "prd" },
-              { time: "3 hours ago", action: "Summarized client meeting notes", type: "summary" },
-            ].map((activity, index) => (
-              <div key={index} className="flex items-center gap-4">
-                <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-                <Clock className="w-4 h-4 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{activity.time}</span>
-                <span className="text-foreground">{activity.action}</span>
-              </div>
-            ))}
-          </div>
+          <LiveActivityFeed />
         </motion.div>
 
         {/* AI-Powered Features Section */}

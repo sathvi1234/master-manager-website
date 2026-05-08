@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Inter } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { PageTransition } from '@/components/effects/page-transition'
 import './globals.css'
 
 const inter = Inter({ 
@@ -27,7 +28,9 @@ export default function RootLayout({
   return (
     <html lang="en" className="bg-[#0B0F19] scroll-smooth">
       <body className={`${inter.variable} font-sans antialiased`}>
-        {children}
+        <PageTransition>
+          {children}
+        </PageTransition>
         {process.env.NODE_ENV === 'production' && <Analytics />}
       </body>
     </html>
