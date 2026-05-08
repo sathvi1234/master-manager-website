@@ -299,7 +299,7 @@ export function WorkflowVisualization() {
                         <p className={`text-xs font-medium truncate ${isActive ? "text-foreground" : "text-muted-foreground"}`}>
                           {step.title}
                         </p>
-                        {workflow.length > 0 && step.duration && (
+                        {"duration" in step && step.duration && (
                           <p className="text-[10px] text-muted-foreground">{step.duration}</p>
                         )}
                       </motion.div>

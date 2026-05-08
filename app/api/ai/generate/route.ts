@@ -206,10 +206,10 @@ Respond ONLY with the JSON array, no other text.`
       system: SYSTEM_PROMPT,
       prompt,
       temperature: 0.7,
-      maxTokens: 2000,
+      maxOutputTokens: 2000,
     })
 
-    return result.toDataStreamResponse()
+    return result.toTextStreamResponse()
   } catch (error) {
     console.error("AI Generation error:", error)
     return Response.json(

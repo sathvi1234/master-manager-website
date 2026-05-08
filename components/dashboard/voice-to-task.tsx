@@ -7,6 +7,33 @@ import { Button } from "@/components/ui/button"
 import { generateAIContent, detectDomain } from "@/lib/ai-service"
 import type { Task } from "@/lib/ai-context"
 
+// Type declarations for Web Speech API
+interface SpeechRecognitionEvent extends Event {
+  resultIndex: number
+  results: SpeechRecognitionResultList
+}
+
+interface SpeechRecognitionErrorEvent extends Event {
+  error: string
+}
+
+interface SpeechRecognitionInstance extends EventTarget {
+  continuous: boolean
+  interimResults: boolean
+  start: () => void
+  stop: () => void
+  onresult: ((event: SpeechRecognitionEvent) => void) | null
+  onerror: ((event: SpeechRecognitionErrorEvent) => void) | null
+  onend: (() => void) | null
+}
+
+declare global {
+  interface Window {
+    SpeechRecognition?: new () => SpeechRecognitionInstance
+    webkitSpeechRecognition?: new () => SpeechRecognitionInstance
+  }
+}
+
 export function VoiceToTask() {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isListening, setIsListening] = useState(false)
@@ -17,28 +44,31 @@ export function VoiceToTask() {
   const [textInput, setTextInput] = useState("")
   const [source, setSource] = useState<"api" | "fallback" | null>(null)
   const [detectedDomain, setDetectedDomain] = useState<string | null>(null)
-  const recognitionRef = useRef<SpeechRecognition | null>(null)
+  const recognitionRef = useRef<SpeechRecognitionInstance | null>(null)
 
   useEffect(() => {
-    if (typeof window !== "undefined" && ("SpeechRecognition" in window || "webkitSpeechRecognition" in window)) {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
-      recognitionRef.current = new SpeechRecognition()
-      recognitionRef.current.continuous = true
-      recognitionRef.current.interimResults = true
+    if (typeof window !== "undefined") {
+      const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition
+      if (SpeechRecognitionClass) {
+        recognitionRef.current = new SpeechRecognitionClass()
+        recognitionRef.current.continuous = true
+        recognitionRef.current.interimResults = true
 
-      recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
-        let finalTranscript = ""
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-          finalTranscript += event.results[i][0].transcript
+        recognitionRef.current.onresult = (event: SpeechRecognitionEvent) => {
+          let finalTranscript = ""
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            finalTranscript += event.results[i][0].transcript
+          }
+          setTranscript(finalTranscript)
         }
-        setTranscript(finalTranscript)
-      }
 
-      recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
-        console.error("[v0] Speech recognition error:", event.error)
-        setError("Microphone error: " + event.error)
-        setIsListening(false)
+        recognitionRef.current.onerror = (event: SpeechRecognitionErrorEvent) => {
+          console.error("[v0] Speech recognition error:", event.error)
+          setError("Microphone error: " + event.error)
+          setIsListening(false)
+        }
       }
+    }
 
       recognitionRef.current.onend = () => {
         setIsListening(false)
