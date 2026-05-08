@@ -15,6 +15,12 @@ import {
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import Link from "next/link"
+import { AITaskGenerator } from "@/components/dashboard/ai-task-generator"
+import { AutoPRDGenerator } from "@/components/dashboard/auto-prd-generator"
+import { ScopeDetection } from "@/components/dashboard/scope-detection"
+import { WorkflowVisualization } from "@/components/dashboard/workflow-visualization"
+import { AIClarification } from "@/components/dashboard/ai-clarification"
+import { VoiceToTask } from "@/components/dashboard/voice-to-task"
 
 const stats = [
   { label: "Active Projects", value: "12", icon: LayoutDashboard, trend: "+2 this week" },
@@ -199,6 +205,41 @@ export default function DashboardPage() {
                 <span className="text-foreground">{activity.action}</span>
               </div>
             ))}
+          </div>
+        </motion.div>
+
+        {/* AI-Powered Features Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.7 }}
+          className="mt-8"
+        >
+          <div className="flex items-center gap-3 mb-6">
+            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+              <Sparkles className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-foreground">AI-Powered Features</h2>
+              <p className="text-sm text-muted-foreground">Interactive tools to supercharge your workflow</p>
+            </div>
+          </div>
+
+          {/* AI Widgets Grid */}
+          <div className="grid lg:grid-cols-2 gap-6">
+            {/* Left Column */}
+            <div className="space-y-6">
+              <AITaskGenerator />
+              <AutoPRDGenerator />
+              <ScopeDetection />
+            </div>
+
+            {/* Right Column */}
+            <div className="space-y-6">
+              <WorkflowVisualization />
+              <AIClarification />
+              <VoiceToTask />
+            </div>
           </div>
         </motion.div>
       </main>
