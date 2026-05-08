@@ -1,8 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import { useRouter } from "next/navigation"
 import { motion, AnimatePresence } from "framer-motion"
-import { Menu, X, Sparkles } from "lucide-react"
+import { Menu, X, Sparkles, Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 const navLinks = [
@@ -15,6 +16,16 @@ const navLinks = [
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [isDemoLoading, setIsDemoLoading] = useState(false)
+  const router = useRouter()
+
+  const handleDemoLogin = () => {
+    setIsDemoLoading(true)
+    // Simulate brief loading then redirect to dashboard
+    setTimeout(() => {
+      router.push("/dashboard")
+    }, 1200)
+  }
 
   useEffect(() => {
     const handleScroll = () => {
@@ -70,12 +81,33 @@ export function Navbar() {
             ))}
           </div>
 
-          {/* CTA Button */}
-          <div className="hidden md:block">
+          {/* CTA Buttons */}
+          <div className="hidden md:flex items-center gap-3">
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ delay: 0.4 }}
+            >
+              <Button
+                onClick={handleDemoLogin}
+                disabled={isDemoLoading}
+                variant="outline"
+                className="border-primary/50 text-foreground hover:bg-primary/10 hover:border-primary font-medium px-5 rounded-full transition-all"
+              >
+                {isDemoLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Try Demo"
+                )}
+              </Button>
+            </motion.div>
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: 0.5 }}
             >
               <Button
                 className="bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium px-6 rounded-full"
@@ -115,6 +147,21 @@ export function Navbar() {
                   {link.name}
                 </a>
               ))}
+              <Button
+                onClick={handleDemoLogin}
+                disabled={isDemoLoading}
+                variant="outline"
+                className="w-full border-primary/50 text-foreground hover:bg-primary/10 hover:border-primary font-medium rounded-full mb-2"
+              >
+                {isDemoLoading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Loading...
+                  </>
+                ) : (
+                  "Try Demo"
+                )}
+              </Button>
               <Button className="w-full bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-white font-medium rounded-full">
                 Get Early Access
               </Button>
