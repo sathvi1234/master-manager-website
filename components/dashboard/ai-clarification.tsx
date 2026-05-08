@@ -1,53 +1,76 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState } from "react"
 import { motion, AnimatePresence } from "framer-motion"
-import { HelpCircle, Sparkles, MessageCircle, ChevronDown, ChevronUp, RefreshCw } from "lucide-react"
+import { HelpCircle, Sparkles, MessageCircle, ChevronDown, ChevronUp, RefreshCw, Loader2, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { useAIContext, parseStreamingResponse, extractJSON } from "@/lib/ai-context"
 
-const sampleQuestions = [
-  "What is the expected user load for the analytics dashboard?",
-  "Should the authentication support SSO providers like Google or Okta?",
-  "What are the primary KPIs to display on the main dashboard?",
-  "Is there a specific design system or component library preference?",
-  "What is the timeline for the MVP release?",
-  "Should we prioritize mobile responsiveness over desktop features?",
-]
+interface ClarificationResponse {
+  questions: string[]
+  context: string
+}
 
 export function AIClarification() {
   const [isExpanded, setIsExpanded] = useState(true)
   const [isGenerating, setIsGenerating] = useState(false)
   const [questions, setQuestions] = useState<string[]>([])
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const [typingText, setTypingText] = useState("")
+  const [context, setContext] = useState("")
+  const [input, setInput] = useState("")
+  const [error, setError] = useState<string | null>(null)
+  const [animatingIndex, setAnimatingIndex] = useState(-1)
+  
+  const { currentRequirement } = useAIContext()
 
-  const generateQuestions = () => {
+  const generateQuestions = async () => {
+    const requirement = input.trim() || currentRequirement
+    if (!requirement) {
+      setError("Please enter a requirement or generate tasks first")
+      return
+    }
+    
     setIsGenerating(true)
     setQuestions([])
-    setCurrentIndex(0)
-    setTypingText("")
-  }
+    setContext("")
+    setError(null)
+    setAnimatingIndex(-1)
 
-  useEffect(() => {
-    if (!isGenerating) return
+    try {
+      const response = await fetch("/api/ai/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "clarification",
+          input: requirement,
+        }),
+      })
 
-    if (currentIndex < sampleQuestions.length) {
-      const targetText = sampleQuestions[currentIndex]
-      
-      if (typingText.length < targetText.length) {
-        const timer = setTimeout(() => {
-          setTypingText(targetText.slice(0, typingText.length + 1))
-        }, 25)
-        return () => clearTimeout(timer)
-      } else {
-        setQuestions(prev => [...prev, targetText])
-        setTypingText("")
-        setCurrentIndex(prev => prev + 1)
+      if (!response.ok) {
+        throw new Error("Failed to generate questions")
       }
-    } else {
+
+      const fullText = await parseStreamingResponse(response)
+      const parsedResponse = extractJSON(fullText) as ClarificationResponse
+      
+      if (parsedResponse && Array.isArray(parsedResponse.questions)) {
+        // Animate questions appearing one by one
+        for (let i = 0; i < parsedResponse.questions.length; i++) {
+          setAnimatingIndex(i)
+          setQuestions(prev => [...prev, parsedResponse.questions[i]])
+          await new Promise(resolve => setTimeout(resolve, 300))
+        }
+        setContext(parsedResponse.context || "")
+        setAnimatingIndex(-1)
+      } else {
+        throw new Error("Invalid response format")
+      }
+    } catch (err) {
+      console.error("Clarification generation error:", err)
+      setError("Failed to generate questions. Please try again.")
+    } finally {
       setIsGenerating(false)
     }
-  }, [isGenerating, currentIndex, typingText])
+  }
 
   return (
     <motion.div
@@ -85,86 +108,122 @@ export function AIClarification() {
             transition={{ duration: 0.3 }}
             className="px-6 pb-6"
           >
-            {/* Generate Button */}
+            {/* Input Section */}
             {questions.length === 0 && !isGenerating && (
-              <Button
-                onClick={generateQuestions}
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 hover:opacity-90 text-white rounded-xl py-6"
+              <div className="space-y-4">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={currentRequirement || "Enter your project requirement to generate clarification questions..."}
+                  className="w-full h-20 bg-muted/30 border border-border rounded-xl p-4 text-foreground placeholder:text-muted-foreground resize-none focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 transition-all text-sm"
+                />
+                <Button
+                  onClick={generateQuestions}
+                  className="w-full bg-gradient-to-r from-cyan-500 to-blue-500 hover:opacity-90 text-white rounded-xl py-6"
+                >
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  Generate Clarification Questions
+                </Button>
+              </div>
+            )}
+
+            {/* Error State */}
+            {error && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="mb-4 p-3 rounded-xl bg-red-500/20 border border-red-500/30 flex items-center gap-2"
               >
-                <Sparkles className="w-4 h-4 mr-2" />
-                Generate Clarification Questions
-              </Button>
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                <p className="text-sm text-red-400">{error}</p>
+              </motion.div>
             )}
 
             {/* Generating State */}
             {isGenerating && questions.length === 0 && (
               <div className="flex items-center justify-center py-8">
                 <div className="flex flex-col items-center gap-3">
-                  <motion.div
-                    animate={{ rotate: [0, 360] }}
-                    transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                    className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center"
-                  >
-                    <Sparkles className="w-6 h-6 text-cyan-400" />
-                  </motion.div>
-                  <span className="text-sm text-muted-foreground">Analyzing context for questions...</span>
+                  <div className="relative">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center">
+                      <HelpCircle className="w-6 h-6 text-cyan-400" />
+                    </div>
+                    <motion.div
+                      className="absolute inset-0 rounded-xl border-2 border-cyan-500"
+                      animate={{ scale: [1, 1.2, 1], opacity: [0.5, 0, 0.5] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    />
+                  </div>
+                  <div className="text-center">
+                    <span className="text-sm text-foreground">Analyzing requirements...</span>
+                    <p className="text-xs text-muted-foreground">Identifying gaps and ambiguities</p>
+                  </div>
+                  <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
                 </div>
               </div>
             )}
 
             {/* Questions List */}
-            <div className="space-y-3">
-              {questions.map((question, index) => (
-                <motion.div
-                  key={index}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-muted/30 hover:bg-muted/50 transition-colors group cursor-pointer"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center shrink-0">
-                    <MessageCircle className="w-4 h-4 text-cyan-400" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-foreground">{question}</p>
-                    <button className="text-xs text-primary mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                      Ask client
-                    </button>
-                  </div>
-                </motion.div>
-              ))}
+            {questions.length > 0 && (
+              <div className="space-y-4">
+                {/* Context Summary */}
+                {context && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="p-3 rounded-lg bg-cyan-500/10 border border-cyan-500/30"
+                  >
+                    <p className="text-xs text-cyan-400">{context}</p>
+                  </motion.div>
+                )}
+                
+                <div className="space-y-3">
+                  {questions.map((question, index) => (
+                    <motion.div
+                      key={index}
+                      initial={{ opacity: 0, x: -20 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`group p-4 rounded-xl bg-muted/30 border border-border/50 hover:border-cyan-500/30 transition-all ${
+                        animatingIndex === index ? "ring-2 ring-cyan-500/50" : ""
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-cyan-500/20 to-blue-500/20 flex items-center justify-center shrink-0">
+                          <MessageCircle className="w-4 h-4 text-cyan-400" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-foreground text-sm leading-relaxed">{question}</p>
+                          <div className="flex items-center gap-2 mt-2">
+                            <span className="text-xs text-muted-foreground">Q{index + 1}</span>
+                            <span className="text-xs text-cyan-400/60">•</span>
+                            <span className="text-xs text-cyan-400/60">AI Generated</span>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
 
-              {/* Typing indicator */}
-              {isGenerating && typingText && (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="flex items-start gap-3 p-4 rounded-xl bg-muted/30"
-                >
-                  <div className="w-8 h-8 rounded-lg bg-cyan-500/20 flex items-center justify-center shrink-0">
-                    <MessageCircle className="w-4 h-4 text-cyan-400" />
+                {/* Still generating indicator */}
+                {isGenerating && (
+                  <div className="flex items-center gap-2 p-3">
+                    <Loader2 className="w-4 h-4 text-cyan-400 animate-spin" />
+                    <span className="text-sm text-muted-foreground">Generating more questions...</span>
                   </div>
-                  <p className="text-foreground">
-                    {typingText}
-                    <motion.span
-                      animate={{ opacity: [1, 0] }}
-                      transition={{ duration: 0.5, repeat: Infinity }}
-                      className="inline-block w-0.5 h-4 bg-cyan-400 ml-0.5 align-middle"
-                    />
-                  </p>
-                </motion.div>
-              )}
-            </div>
+                )}
 
-            {/* Regenerate Button */}
-            {questions.length > 0 && !isGenerating && (
-              <Button
-                onClick={generateQuestions}
-                variant="outline"
-                className="w-full mt-4 border-cyan-500/30 hover:bg-cyan-500/10"
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Generate More Questions
-              </Button>
+                {/* Reset Button */}
+                {!isGenerating && (
+                  <Button
+                    onClick={() => { setQuestions([]); setContext(""); setInput(""); }}
+                    variant="outline"
+                    className="w-full border-cyan-500/30 hover:bg-cyan-500/10"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    Generate New Questions
+                  </Button>
+                )}
+              </div>
             )}
           </motion.div>
         )}

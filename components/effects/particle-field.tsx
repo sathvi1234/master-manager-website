@@ -12,23 +12,36 @@ interface Particle {
   speedY: number
   opacity: number
   hue: number
+  animDuration: number
+}
+
+// Seeded random for consistent values
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (seed * 9301 + 49297) % 233280
+    return seed / 233280
+  }
 }
 
 export function ParticleField({ count = 50 }: { count?: number }) {
   const [particles, setParticles] = useState<Particle[]>([])
   const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 })
+  const [mounted, setMounted] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
+    setMounted(true)
+    const random = seededRandom(123)
     const initialParticles: Particle[] = Array.from({ length: count }, (_, i) => ({
       id: i,
-      x: Math.random() * 100,
-      y: Math.random() * 100,
-      size: Math.random() * 4 + 1,
-      speedX: (Math.random() - 0.5) * 0.3,
-      speedY: (Math.random() - 0.5) * 0.3,
-      opacity: Math.random() * 0.5 + 0.2,
-      hue: Math.random() > 0.5 ? 262 : 217, // Purple or Blue
+      x: random() * 100,
+      y: random() * 100,
+      size: random() * 4 + 1,
+      speedX: (random() - 0.5) * 0.3,
+      speedY: (random() - 0.5) * 0.3,
+      opacity: random() * 0.5 + 0.2,
+      hue: random() > 0.5 ? 262 : 217,
+      animDuration: 2 + random() * 2,
     }))
     setParticles(initialParticles)
   }, [count])
@@ -49,19 +62,19 @@ export function ParticleField({ count = 50 }: { count?: number }) {
   }, [])
 
   useEffect(() => {
+    if (particles.length === 0) return
+    
     const interval = setInterval(() => {
       setParticles((prev) =>
         prev.map((particle) => {
           let newX = particle.x + particle.speedX
           let newY = particle.y + particle.speedY
 
-          // Wrap around edges
           if (newX > 100) newX = 0
           if (newX < 0) newX = 100
           if (newY > 100) newY = 0
           if (newY < 0) newY = 100
 
-          // Subtle mouse attraction
           const dx = mousePosition.x - newX
           const dy = mousePosition.y - newY
           const distance = Math.sqrt(dx * dx + dy * dy)
@@ -76,7 +89,12 @@ export function ParticleField({ count = 50 }: { count?: number }) {
     }, 50)
 
     return () => clearInterval(interval)
-  }, [mousePosition])
+  }, [mousePosition, particles.length])
+
+  // Don't render particles during SSR
+  if (!mounted) {
+    return <div ref={containerRef} className="absolute inset-0 overflow-hidden pointer-events-none" />
+  }
 
   return (
     <div ref={containerRef} className="absolute inset-0 overflow-hidden pointer-events-none">
@@ -97,7 +115,7 @@ export function ParticleField({ count = 50 }: { count?: number }) {
             opacity: [particle.opacity, particle.opacity * 1.5, particle.opacity],
           }}
           transition={{
-            duration: 2 + Math.random() * 2,
+            duration: particle.animDuration,
             repeat: Infinity,
             ease: "easeInOut",
           }}

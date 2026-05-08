@@ -1,17 +1,50 @@
 "use client"
 
+import { useState, useEffect } from "react"
 import { motion } from "framer-motion"
 
+interface Shard {
+  id: number
+  size: number
+  x: number
+  y: number
+  rotation: number
+  delay: number
+  duration: number
+}
+
+// Seeded random number generator for consistent server/client rendering
+function seededRandom(seed: number): () => number {
+  return () => {
+    seed = (seed * 9301 + 49297) % 233280
+    return seed / 233280
+  }
+}
+
 export function FloatingShards() {
-  const shards = Array.from({ length: 12 }, (_, i) => ({
-    id: i,
-    size: Math.random() * 30 + 10,
-    x: Math.random() * 100,
-    y: Math.random() * 100,
-    rotation: Math.random() * 360,
-    delay: Math.random() * 2,
-    duration: 8 + Math.random() * 4,
-  }))
+  const [shards, setShards] = useState<Shard[]>([])
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+    // Generate shards only on client side to avoid hydration mismatch
+    const random = seededRandom(42)
+    const generatedShards = Array.from({ length: 12 }, (_, i) => ({
+      id: i,
+      size: random() * 30 + 10,
+      x: random() * 100,
+      y: random() * 100,
+      rotation: random() * 360,
+      delay: random() * 2,
+      duration: 8 + random() * 4,
+    }))
+    setShards(generatedShards)
+  }, [])
+
+  // Don't render anything during SSR to avoid hydration mismatch
+  if (!mounted || shards.length === 0) {
+    return <div className="absolute inset-0 overflow-hidden pointer-events-none" />
+  }
 
   return (
     <div className="absolute inset-0 overflow-hidden pointer-events-none">
